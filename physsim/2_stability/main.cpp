@@ -157,26 +157,62 @@ namespace physsim
             case EMethod::Analytical:
             {
                 // TODO: analytical solution
+                double alpha = -(gamma) / (2 * m);
+                double beta  =  sqrt(4 * k * m - gamma * gamma) / (2 * m);
+                double c1    = -m * mGravity.z() / k;
+                double c2    = -c1 * alpha / beta;
+
+                mSpring.endPosition.z() = c1 * (exp(alpha * mTime)) * cos(beta * mTime) + c2 * (exp(alpha * mTime)) * sin(beta * mTime) - L + (m * mGravity.z() / k);
+                mSpring.endVelocity.z() = exp(alpha * mTime) * (c1 * (alpha * cos(beta * mTime) - beta * sin(beta * mTime)) + c2 * (alpha * sin(beta * mTime) + beta * cos(beta * mTime)));
+
                 break;
             }
 
             case EMethod::ExplicitEuler:
                 // TODO: explicit euler
+                mSpring.endPosition += mStepSize * v; 
+                mSpring.endVelocity += mStepSize * a;
                 break;
 
             case EMethod::SymplecticEuler:
                 // TODO: symplectic euler
+                mSpring.endVelocity += mStepSize * a;
+                mSpring.endPosition += mStepSize * v;
                 break;
 
             case EMethod::ExplicitRK2:
             {
                 // TODO: explicit second-order Runge-Kutta
+                
+                Eigen::Vector3d d_x = mSpring.endVelocity;
+                Eigen::Vector3d d_v = a;
+
+                Eigen::Vector3d mid_x = x + d_x * (mStepSize / 2);
+                Eigen::Vector3d mid_v = v + d_v * (mStepSize / 2);
+
+                Eigen::Vector3d spring_dir_m = (mid_x - mSpring.startPosition).normalized();
+                double spring_norm_m         = (mid_x - mSpring.startPosition).norm();
+                Eigen::Vector3d f_int_m      = -k * (spring_norm_m - L) * spring_dir_m;
+                Eigen::Vector3d f_damp_m     = -gamma * mid_v;
+                Eigen::Vector3d f_m          = f_int_m + f_damp_m + f_ext;             
+                Eigen::Vector3d mid_a        = f_m / m;
+
+                mSpring.endVelocity += mid_a * mStepSize;
+                mSpring.endPosition += mid_v * mStepSize;
+               
                 break;
             }
 
             case EMethod::ImplicitEuler:
             {
                 // TODO: implicit euler
+                double num = m * v.z() - mStepSize * k * x.z() + (mStepSize * mGravity.z() * m) - (mStepSize * L * k);
+                double den = k * mStepSize*mStepSize + gamma*mStepSize + m;  
+                double v_new = num / den;
+
+                mSpring.endPosition.z() += mStepSize * v.z();
+                mSpring.endVelocity = Eigen::Vector3d(0,0,v_new); 
+
                 break;
             }
             }
