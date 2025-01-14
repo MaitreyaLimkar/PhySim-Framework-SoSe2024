@@ -177,7 +177,7 @@ namespace physsim
             case EMethod::SymplecticEuler:
                 // TODO: symplectic euler
                 mSpring.endVelocity += mStepSize * a;
-                mSpring.endPosition += mStepSize * v;
+                mSpring.endPosition += mStepSize * mSpring.endVelocity;
                 break;
 
             case EMethod::ExplicitRK2:
@@ -210,7 +210,7 @@ namespace physsim
                 double den = k * mStepSize*mStepSize + gamma*mStepSize + m;  
                 double v_new = num / den;
 
-                mSpring.endPosition.z() += mStepSize * v.z();
+                mSpring.endPosition.z() += mStepSize * v_new;
                 mSpring.endVelocity = Eigen::Vector3d(0,0,v_new); 
 
                 break;

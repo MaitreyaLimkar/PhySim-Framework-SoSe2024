@@ -117,12 +117,20 @@ namespace physsim
             Eigen::Vector3d f_int = springForces->getValueDouble(i);
 
             // TODO: compute damping force and external force
+            Eigen::Vector3d f_damp = -damping * v;
+            Eigen::Vector3d f_ext  = mass * gravity;
 
             // TODO: sum up internal, damping, and external force, and convert this to an acceleration.
+            Eigen::Vector3d a = (f_int + f_damp + f_ext)/mass;
 
             // TODO: symplectic Euler integration of position and velocity.
-
+            v += stepSize * a;
+            x += stepSize * v;
+            
             // TODO: set the new position and the new velocity
+            mesh->positions->setValueDouble(i, x);
+            velocities->setValueDouble(i, v);            
+           
         }
 
         // recompute the vertex normals
@@ -169,9 +177,15 @@ namespace physsim
         Eigen::Vector3d f_int   = springForces->getValueDouble(linearIndex_endPoint);
 
         // TODO: compute spring direction and the displacement
-
+        Eigen::Vector3d springVect  = endPos - startPos; 
+        double L_x   = springVect.norm(); 
+        Eigen::Vector3d springForce = -stiffness * (L_x - L) * springVect.normalized(); 
+        
         // TODO: add spring force to f_int
-       
+        f_int += springForce;
+                       
         // TODO: store the new accumulate spring force f_int in the array springForces
+        springForces->setValueDouble(linearIndex_endPoint, f_int); 
+      
     }
 }

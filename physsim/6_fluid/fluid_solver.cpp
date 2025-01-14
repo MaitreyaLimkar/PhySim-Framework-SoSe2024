@@ -311,6 +311,10 @@ namespace physsim
                     {
                         float b = mDivergence->getVertexDataAt({ i, j }).x() / stepSize * rho; // right-hand
                         // TODO: update the pressure values
+                        mPressure->setVertexDataAt({ i, j }, (1 / 4.0) * (((i != 0) ? mPressure->getVertexDataAt({ i - 1, j }).x() : 0) +
+                                                                          ((i != mResolution.x() - 1) ? mPressure->getVertexDataAt({ i + 1, j }).x() : 0) +
+                                                                          ((j != 0) ? mPressure->getVertexDataAt({ i, j - 1 }).x() : 0) +
+                                                                          ((j != mResolution.y() - 1) ? mPressure->getVertexDataAt({ i, j + 1 }).x() : 0) - b * dx2));
                     }
                 }
                 break;
@@ -320,7 +324,20 @@ namespace physsim
                     for (int i = 0; i < mResolution.x(); ++i)
                     {
                         float b = mDivergence->getVertexDataAt({ i, j }).x() / stepSize * rho; // right-hand
+                        float k = 4;
                         // TODO: update the pressure values
+                        if (i == 0 || i == mResolution.x() - 1)
+                        {
+                            k--;
+                        }
+                        if (j == 0 || j == mResolution.y() - 1)
+                        {
+                            k--;
+                        }
+                        mPressure->setVertexDataAt({ i, j }, (1 / k) * (((i != 0) ? mPressure->getVertexDataAt({ i - 1, j }).x() : 0) +
+                                                                        ((i != mResolution.x() - 1) ? mPressure->getVertexDataAt({ i + 1, j }).x() : 0) +
+                                                                        ((j != 0) ? mPressure->getVertexDataAt({ i, j - 1 }).x() : 0) +
+                                                                        ((j != mResolution.y() - 1) ? mPressure->getVertexDataAt({ i, j + 1 }).x() : 0) - b * dx2));
                     }
                 }
                 break;
@@ -334,6 +351,8 @@ namespace physsim
                 {
                     float b = mDivergence->getVertexDataAt({ i, j }).x() / stepSize * rho; // right-hand
                     // TODO: compute the cell residual
+                    float abc = b - ((((-4 * mPressure->getVertexDataAt({ i, j })) + (mPressure->getVertexDataAt({ i - 1, j })) + (mPressure->getVertexDataAt({ i + 1, j })) + (mPressure->getVertexDataAt({ i, j - 1 })) + (mPressure->getVertexDataAt({ i, j + 1 }))).x()) / (dx2));
+                    residual += abc * abc;
                 }
             }
 
@@ -354,7 +373,8 @@ namespace physsim
         Eigen::VectorXd b(mResolution.x() * mResolution.y());
         for (int j = 0; j < mResolution.y(); ++j)
             for (int i = 0; i < mResolution.x(); ++i)
-                b(j * (size_t)mResolution.x() + i) = 0; // ... set correct value
+                b(j * (size_t)mResolution.x() + i) = mDivergence->getVertexDataAt({ i, j }).x() * dx2 * rho / stepSize; // ... set correct value
+               
 
         // solve sparse linear SPD system
         Eigen::VectorXd pout = mPoissonFactorization.solve(b);
@@ -387,6 +407,8 @@ namespace physsim
             for (int i = 1; i < mResolution.x(); ++i)
             {
                 // TODO: update u
+                float u_corr = mVelocity_u->getVertexDataAt({ i, j }).x() - (stepSize * (mPressure->getVertexDataAt({ i, j }) - mPressure->getVertexDataAt({ i - 1, j })).x() / mSpacing.x());
+                mVelocity_u->setVertexDataAt({ i, j }, u_corr);
             }
 
         // Same for velocity v_{i+1/2}.
@@ -394,6 +416,8 @@ namespace physsim
             for (int i = 1; i < mResolution.x() - 1; ++i)
             {
                 // TODO: update v
+                float v_corr = mVelocity_v->getVertexDataAt({ i, j }).x() - (stepSize * (mPressure->getVertexDataAt({ i, j }) - mPressure->getVertexDataAt({ i, j - 1 })).x() / mSpacing.y());
+                mVelocity_v->setVertexDataAt({ i, j }, v_corr);
             }
     }
 
@@ -418,12 +442,12 @@ namespace physsim
             for (int i = 1; i < mResolution.x(); ++i)
             { // skip first and last row: those are determined by the boundary condition
                 // TODO: Compute the velocity
-                float last_x_velocity = 0;  // ... set correct value
-                float last_y_velocity = 0;  // ... set correct value
+                float last_x_velocity = (mVelocity_u->getVertexDataAt({ i, j })).x();                                                                                                                                                    // ... set correct value
+                float last_y_velocity = ((mVelocity_v->getVertexDataAt({ i - 1, j + 1 }) + mVelocity_v->getVertexDataAt({ i, j + 1 }) + (mVelocity_v->getVertexDataAt({ i, j }) + mVelocity_v->getVertexDataAt({ i - 1, j }))).x()) / 4; // ... set correct value
 
                 // TODO: Find the last position of the particle (in grid coordinates) using an Euler step
-                float last_x = 0;           // ... set correct value
-                float last_y = 0;           // ... set correct value
+                float last_x = i - last_x_velocity * mResolution.x() * stepSize; // ... set correct value
+                float last_y = j - last_y_velocity * mResolution.y() * stepSize; // ... set correct value
 
                 // Make sure the coordinates are inside the boundaries
                 if (last_x < 0)
@@ -446,6 +470,8 @@ namespace physsim
                 float y_weight = last_y - y_low;
 
                 // TODO: Bilinear interpolation
+                float new_u = (mVelocity_u->getVertexDataAt({ x_high, y_high }).x() * y_weight * x_weight) + (mVelocity_u->getVertexDataAt({ x_high, y_low }).x() * (1 - y_weight) * x_weight) + (mVelocity_u->getVertexDataAt({ x_low, y_low }).x() * (1 - y_weight) * (1 - x_weight)) + (mVelocity_u->getVertexDataAt({ x_low, y_high }).x() * (1 - x_weight) * y_weight);
+                mVelocity_u_tmp->setVertexDataAt({ i, j }, new_u);
             }
         }
 
@@ -464,12 +490,12 @@ namespace physsim
             for (int i = 0; i < mResolution.x(); ++i)
             {
                 // TODO: Compute the velocity
-                float last_x_velocity = 0;  // ... set correct value
-                float last_y_velocity = 0;  // ... set correct value
+                float last_y_velocity = (mVelocity_v->getVertexDataAt({ i, j })).x();                                                                                                                                                    // ... set correct value
+                float last_x_velocity = ((mVelocity_u->getVertexDataAt({ i, j }) + mVelocity_u->getVertexDataAt({ i + 1, j }) + (mVelocity_u->getVertexDataAt({ i + 1, j - 1 }) + mVelocity_u->getVertexDataAt({ i, j - 1 }))).x()) / 4; // ... set correct value                                                                                                                                                                                                                        // ... set correct value
 
                 // TODO: Find the last position of the particle (in grid coordinates) using an Euler step
-                float last_x = 0;           // ... set correct value
-                float last_y = 0;           // ... set correct value
+                float last_x = i - last_x_velocity * mResolution.x() * stepSize; // ... set correct value
+                float last_y = j - last_y_velocity * mResolution.y() * stepSize; // ... set correct value
 
                 // Make sure the coordinates are inside the boundaries
                 if (last_x < 0)
@@ -492,6 +518,8 @@ namespace physsim
                 float y_weight = last_y - y_low;
 
                 // TODO: Bilinear interpolation
+                float new_v = (mVelocity_v->getVertexDataAt({ x_high, y_high }).x() * y_weight * x_weight) + (mVelocity_v->getVertexDataAt({ x_high, y_low }).x() * (1 - y_weight) * x_weight) + (mVelocity_v->getVertexDataAt({ x_low, y_low }).x() * (1 - y_weight) * (1 - x_weight)) + (mVelocity_v->getVertexDataAt({ x_low, y_high }).x() * (1 - x_weight) * y_weight);
+                mVelocity_v_tmp->setVertexDataAt({ i, j }, new_v);
             }
         }
 
@@ -522,12 +550,12 @@ namespace physsim
             for (int i = 0; i < mResolution.x(); ++i)
             {
                 // TODO: Compute the velocity
-                float last_x_velocity = 0;  // ... set correct value
-                float last_y_velocity = 0;  // ... set correct value
+                float last_x_velocity = ((mVelocity_u->getVertexDataAt({ i, j }) + mVelocity_u->getVertexDataAt({ i + 1, j })).x()) / 2; // ... set correct value
+                float last_y_velocity = ((mVelocity_v->getVertexDataAt({ i, j }) + mVelocity_v->getVertexDataAt({ i, j + 1 })).x()) / 2; // ... set correct value
 
                 // TODO: Find the last position of the particle (in grid coordinates) using an Euler step
-                float last_x = 0;           // ... set correct value
-                float last_y = 0;           // ... set correct value
+                float last_x = i - last_x_velocity * mResolution.x() * stepSize; // ... set correct value
+                float last_y = j - last_y_velocity * mResolution.y() * stepSize; // ... set correct value
 
                 // Make sure the coordinates are inside the boundaries
                 const float offset = 0.0; // a trick to fight the dissipation through boundaries is to sample with a small offset
@@ -551,6 +579,8 @@ namespace physsim
                 float y_weight = last_y - y_low;
 
                 // TODO: Bilinear interpolation
+                float new_dens = (mDensity->getVertexDataAt({ x_high, y_high }).x() * y_weight * x_weight) + (mDensity->getVertexDataAt({ x_high, y_low }).x() * (1 - y_weight) * x_weight) + (mDensity->getVertexDataAt({ x_low, y_low }).x() * (1 - y_weight) * (1 - x_weight)) + (mDensity->getVertexDataAt({ x_low, y_high }).x() * (1 - x_weight) * y_weight);
+                mDensity_tmp->setVertexDataAt({ i, j }, new_dens);
             }
         }
 
@@ -560,58 +590,103 @@ namespace physsim
                 mDensity->setVertexDataAt({ i, j }, mDensity_tmp->getVertexDataAt({ i, j }));
     }
 
-    void FluidSolver::buildLaplace2d(Eigen::SparseMatrix<double>& A)
+ void FluidSolver::buildLaplace2d(Eigen::SparseMatrix<double>& A)
     {
         Eigen::Vector2i resolution = mPressure->getGrid()->getResolution();
-
+        int nx                     = resolution.x(); // Number of grid points along x-axis
+        int ny                     = resolution.y(); // Number of grid points along y-axis 
         std::list<Eigen::Triplet<double>> coeff;
         for (int j = 0; j < resolution.y(); ++j)
             for (int i = 0; i < resolution.x(); ++i)
             {
-                coeff.push_back(Eigen::Triplet<double>(j * resolution.x() + i, j * resolution.x() + i, -4));
-
+                
+                coeff.push_back(Eigen::Triplet<double>(j * resolution.x() + i, j * resolution.x() + i, -4)); 
+                
                 switch (boundary)
                 {
+
                 case EBoundary::Open: // smooth continuation
-                    // example for 4x4 matrix
-                    // -4  1  0  0  1  0  0  0  0  0  0  0  0  0  0  0
-                    //  1 -4  1  0  0  1  0  0  0  0  0  0  0  0  0  0
-                    // 	0  1 -4  1  0  0  1  0  0  0  0  0  0  0  0  0
-                    // 	0  0  1 -4  0  0  0  1  0  0  0  0  0  0  0  0
-                    //  1  0  0  0 -4  1  0  0  1  0  0  0  0  0  0  0
-                    // 	0  1  0  0  1 -4  1  0  0  1  0  0  0  0  0  0
-                    // 	0  0  1  0  0  1 -4  1  0  0  1  0  0  0  0  0
-                    // 	0  0  0  1  0  0  1 -4  0  0  0  1  0  0  0  0
-                    // 	0  0  0  0  1  0  0  0 -4  1  0  0  1  0  0  0
-                    // 	0  0  0  0  0  1  0  0  1 -4  1  0  0  1  0  0
-                    // 	0  0  0  0  0  0  1  0  0  1 -4  1  0  0  1  0
-                    // 	0  0  0  0  0  0  0  1  0  0  1 -4  0  0  0  1
-                    // 	0  0  0  0  0  0  0  0  1  0  0  0 -4  1  0  0
-                    // 	0  0  0  0  0  0  0  0  0  1  0  0  1 -4  1  0
-                    // 	0  0  0  0  0  0  0  0  0  0  1  0  0  1 -4  1
-                    // 	0  0  0  0  0  0  0  0  0  0  0  1  0  0  1 -4
+                                      // example for 4x4 matrix
+                                      //   -4  1  0  0  1  0  0  0  0  0  0  0  0  0  0  0
+                                      //    1 -4  1  0  0  1  0  0  0  0  0  0  0  0  0  0
+                                      // 	0  1 -4  1  0  0  1  0  0  0  0  0  0  0  0  0
+                                      // 	0  0  1 -4  0  0  0  1  0  0  0  0  0  0  0  0
+                                      //    1  0  0  0 -4  1  0  0  1  0  0  0  0  0  0  0
+                                      // 	0  1  0  0  1 -4  1  0  0  1  0  0  0  0  0  0
+                                      // 	0  0  1  0  0  1 -4  1  0  0  1  0  0  0  0  0
+                                      // 	0  0  0  1  0  0  1 -4  0  0  0  1  0  0  0  0
+                                      // 	0  0  0  0  1  0  0  0 -4  1  0  0  1  0  0  0
+                                      // 	0  0  0  0  0  1  0  0  1 -4  1  0  0  1  0  0
+                                      // 	0  0  0  0  0  0  1  0  0  1 -4  1  0  0  1  0
+                                      // 	0  0  0  0  0  0  0  1  0  0  1 -4  0  0  0  1
+                                      // 	0  0  0  0  0  0  0  0  1  0  0  0 -4  1  0  0
+                                      // 	0  0  0  0  0  0  0  0  0  1  0  0  1 -4  1  0
+                                      // 	0  0  0  0  0  0  0  0  0  0  1  0  0  1 -4  1
+                                      // 	0  0  0  0  0  0  0  0  0  0  0  1  0  0  1 -4
+
+                    if (i + 1 < nx)
+                    {
+                        coeff.push_back(Eigen::Triplet<double>(j * resolution.x() + i, j * resolution.x() + i + 1, 1));
+                    }
+
+                    // Left neighbor
+                    if (i - 1 >= 0)
+                    {
+                        coeff.push_back(Eigen::Triplet<double>(j * resolution.x() + i, j * resolution.x() + i - 1, 1));
+                    }
+
+                    // Bottom neighbor
+                    if (j + 1 < ny)
+                    {
+                        coeff.push_back(Eigen::Triplet<double>(j * resolution.x() + i, j * resolution.x() + i + nx, 1));
+                    }
+
+                    // Top neighbor
+                    if (j - 1 >= 0)
+                    {
+                        coeff.push_back(Eigen::Triplet<double>(j * resolution.x() + i, j * resolution.x() + i - nx, 1));
+                    }
                     break;
+    
+
                 case EBoundary::Closed: // forward/backward difference on boundary   (same pattern of -1's, but the main diagonal contains the number of -1's per row)
-                    // -2  1  0  0  1  0  0  0  0  0  0  0  0  0  0  0
-                    //  1 -3  1  0  0  1  0  0  0  0  0  0  0  0  0  0
-                    //	0  1 -3  1  0  0  1  0  0  0  0  0  0  0  0  0
-                    //	0  0  1 -2  0  0  0  1  0  0  0  0  0  0  0  0
-                    //  1  0  0  0 -3  1  0  0  1  0  0  0  0  0  0  0
-                    //	0  1  0  0  1 -4  1  0  0  1  0  0  0  0  0  0
-                    //	0  0  1  0  0  1 -4  1  0  0  1  0  0  0  0  0
-                    //	0  0  0  1  0  0  1 -3  0  0  0  1  0  0  0  0
-                    //	0  0  0  0  1  0  0  0 -3  1  0  0  1  0  0  0
-                    //	0  0  0  0  0  1  0  0  1 -4  1  0  0  1  0  0
-                    //	0  0  0  0  0  0  1  0  0  1 -4  1  0  0  1  0
-                    //	0  0  0  0  0  0  0  1  0  0  1 -3  0  0  0  1
-                    //	0  0  0  0  0  0  0  0  1  0  0  0 -2  1  0  0
-                    //	0  0  0  0  0  0  0  0  0  1  0  0  1 -3  1  0
-                    //	0  0  0  0  0  0  0  0  0  0  1  0  0  1 -3  1
-                    //	0  0  0  0  0  0  0  0  0  0  0  1  0  0  1 -2
+                                        // -2  1  0  0  1  0  0  0  0  0  0  0  0  0  0  0
+                                        //  1 -3  1  0  0  1  0  0  0  0  0  0  0  0  0  0
+                                        //	0  1 -3  1  0  0  1  0  0  0  0  0  0  0  0  0
+                                        //	0  0  1 -2  0  0  0  1  0  0  0  0  0  0  0  0
+                                        //  1  0  0  0 -3  1  0  0  1  0  0  0  0  0  0  0
+                                        //	0  1  0  0  1 -4  1  0  0  1  0  0  0  0  0  0
+                                        //	0  0  1  0  0  1 -4  1  0  0  1  0  0  0  0  0
+                                        //	0  0  0  1  0  0  1 -3  0  0  0  1  0  0  0  0
+                                        //	0  0  0  0  1  0  0  0 -3  1  0  0  1  0  0  0
+                                        //	0  0  0  0  0  1  0  0  1 -4  1  0  0  1  0  0
+                                        //	0  0  0  0  0  0  1  0  0  1 -4  1  0  0  1  0
+                                        //	0  0  0  0  0  0  0  1  0  0  1 -3  0  0  0  1
+                                        //	0  0  0  0  0  0  0  0  1  0  0  0 -2  1  0  0
+                                        //	0  0  0  0  0  0  0  0  0  1  0  0  1 -3  1  0
+                                        //	0  0  0  0  0  0  0  0  0  0  1  0  0  1 -3  1
+                                        //	0  0  0  0  0  0  0  0  0  0  0  1  0  0  1 -2
+
+                        // For the 1's off diagonals
+
+
+                        coeff.push_back(Eigen::Triplet<double>(j * resolution.x() + i, j * resolution.x() + std::max(i - 1, 0), 1));
+                 
+                        coeff.push_back(Eigen::Triplet<double>(j * resolution.x() + i, j * resolution.x() + std::min(i + 1, resolution.x() - 1), 1));
+
+                        // For the values of the main diagonals
+                   
+                        coeff.push_back(Eigen::Triplet<double>(j * resolution.x() + i, std::max(j - 1, 0) * resolution.x() + i, 1));
+                    
+                        coeff.push_back(Eigen::Triplet<double>(j * resolution.x() + i, std::min(j + 1, resolution.y() - 1) * resolution.x() + i, 1));
+                    
+             
+
                     break;
+                 
                 }
             }
-
+       // A.resize(resolution.x() * resolution.y(), resolution.x() * resolution.y());  
         A.setFromTriplets(coeff.begin(), coeff.end());
     }
 }

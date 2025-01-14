@@ -362,7 +362,9 @@ namespace physsim
             for (Eigen::Index i = 0; i < mPositions->getSize(); ++i)
             {
                 // TODO: compute pressure p_i from mDensities, using mStiffness (k), mRho0 (rest density) and mExponent (gamma).
-                float pi = 0;   // ... set correct value
+                float rhoi = mDensities->getValue(i).x();
+                
+                float pi = mStiffness * (pow((rhoi/mRho0),mExponent) - 1); // ... set correct value 
                 mPressures->setValue(i, pi);
             }
 
@@ -386,10 +388,15 @@ namespace physsim
                         float pj           = mPressures->getValue(n.first).x();
                         float rhoj         = mDensities->getValue(n.first).x();
                         float massj        = mMasses->getValue(n.first).x();
-
+                        
                         // TODO: pressure acceleration
-
+                        ai_p += - massj * (pi / (rhoi * rhoi) + pj / (rhoj * rhoj)) * W.gradW(xi - xj); 
+                                              
                         // TODO: viscosity acceleration
+                        if ((xi - xj).norm() != 0)
+                        {
+                            ai_p += mViscosity * massj / (rhoj) * ((vi - vj).cwiseProduct(W.gradW(xi - xj))).cwiseProduct((xi - xj).normalized());
+                        }                 
                     }
                 }
 
@@ -404,8 +411,13 @@ namespace physsim
                         float massk        = mBoundaryMasses->getValue(n.first).x();
 
                         // TODO: pressure acceleration (Akinci)
+                       ai_p += - massk * (pi / (rhoi * rhoi) + pk / (rhok * rhok)) * W.gradW(xi - xk);    
 
                         // TODO: viscosity acceleration (Akinci)
+                       if ((xi - xk).norm() != 0)
+                       {
+                           ai_p += mViscosity * massk / (rhok) * ((vi).cwiseProduct(W.gradW(xi - xk))).cwiseProduct((xi - xk).normalized());
+                       }
                     }
                 }
 

@@ -68,6 +68,75 @@ namespace physsim
         case EBroadPhaseMethod::SweepAndPrune:
         {
             // TODO: compute bounding boxes and create intervals on the 3 main axes
+            std::vector<Eigen::AlignedBox3d> aabbs(mObjects.size());
+            for (size_t i = 0; i < aabbs.size(); i++)
+            {
+                aabbs[i] = mObjects[i]->shape()->worldBounds();
+            }
+            using interval = std::tuple<double, double, int>;
+            std::vector<interval> intervals[3];
+            for (int i = 0; i < 3; ++i)
+                intervals[i].resize(aabbs.size());
+
+            for (size_t i = 0; i < aabbs.size(); i++)
+            {
+                intervals[0][i] = std::make_tuple(aabbs[i].min()[0], aabbs[i].max()[0], i);
+                intervals[1][i] = std::make_tuple(aabbs[i].min()[1], aabbs[i].max()[1], i); 
+                intervals[2][i] = std::make_tuple(aabbs[i].min()[2], aabbs[i].max()[2], i);
+            }
+
+            // TODO: sort intervals in ascending order by beginning of interval
+            // std::get<0>(intervals[0][i])
+            std::sort(intervals[0].begin(), intervals[0].end());
+            std::sort(intervals[1].begin(), intervals[1].end());
+            std::sort(intervals[2].begin(), intervals[2].end());
+
+            // TODO: iterate and place overlaps in a set
+            std::set<std::pair<int, int>> overlap[3];
+            for (int n = 0; n < 3; n++)
+            {
+                for (size_t i = 0; i < aabbs.size(); i++)
+                {
+                    double end_i = std::get<1>(intervals[n][i]);
+                    for (size_t j = i + 1; j < aabbs.size(); j++)
+                    {
+                        double start_j = std::get<0>(intervals[n][j]);
+                        if (start_j < end_i)
+                        {
+                            int ind_i = std::get<2>(intervals[n][i]);
+                            int ind_j = std::get<2>(intervals[n][j]);
+                            if (ind_j > ind_i)
+                            {
+                                overlap[n].insert(std::make_pair(ind_j, ind_i));
+                            }
+                            else
+                            {
+                                overlap[n].insert(std::make_pair(ind_i, ind_j));
+                            }
+                        }
+                        else
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            std::set<std::pair<int, int>> commonOverlaps;
+            std::set_intersection(overlap[0].begin(), overlap[0].end(),
+                                  overlap[1].begin(), overlap[1].end(),
+                                  std::inserter(commonOverlaps, commonOverlaps.begin()));
+
+            std::set<std::pair<int, int>> finalOverlaps;
+            std::set_intersection(commonOverlaps.begin(), commonOverlaps.end(),
+                                  overlap[2].begin(), overlap[2].end(),
+                                  std::inserter(finalOverlaps, finalOverlaps.begin()));
+
+            mOverlappingBodys.assign(finalOverlaps.begin(), finalOverlaps.end());
+
+
+            // TODO: compute bounding boxes and create intervals on the 3 main axes
+
             
             // TODO: sort intervals in ascending order by beginning of interval
 
@@ -349,10 +418,24 @@ namespace physsim
             // vectors ra and rb from the centers of mass to the contact point (in world space)
             Eigen::Vector3d ra = contact.p - contact.a->position();
             Eigen::Vector3d rb = contact.p - contact.b->position();
+            Eigen::Vector3d n  = contact.n;
 
             // TODO: compute impulse response
+            double ma_inv = contact.a->massInverse();
+            double mb_inv = contact.b->massInverse();
+            Eigen::Matrix3d Ia_inv = contact.a->inertiaBodyInverse();
+            Eigen::Matrix3d Ib_inv = contact.b->inertiaBodyInverse();
+            double den_1           = n.dot((Ia_inv * (ra.cross(n))).cross(ra));
+            double den_2           = n.dot((Ib_inv * (rb.cross(n))).cross(rb));
+
+            double j_num = -(1 + eps) * vrel;
+            double j_den = ma_inv + mb_inv + den_1 + den_2;
+            double j = j_num / j_den;
 
             // TODO: apply impulse forces to the bodies at the contact point
+            Eigen::Vector3d f_impulse = j * contact.n / stepSize; 
+            contact.a->applyForce(-f_impulse, contact.p);
+            contact.b->applyForce(f_impulse, contact.p);
         }
     }
 
